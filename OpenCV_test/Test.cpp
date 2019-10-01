@@ -142,7 +142,7 @@ void PickTomatoes(VideoCapture &video_in) {
 void ComputeOpticalFlow(VideoCapture &video, std::vector<TomatoeEvent> events, int circleSize) {
 	Mat frame, frame_gray, old_frame, old_gray;
 	std::vector<Point2f> p0, p1;
-	int currentEvent = 0;
+	//int currentEvent = 0;
 	currentFrame = 0;
 
 	video_in.set(CAP_PROP_POS_FRAMES, 0);
@@ -151,25 +151,29 @@ void ComputeOpticalFlow(VideoCapture &video, std::vector<TomatoeEvent> events, i
 	currentFrame++;
 
 	while (true) {
-		if (currentFrame == events[currentEvent].frame) {
-			if (events[currentEvent].isVisible) {
-				p0.push_back(events[currentEvent].coord);
-			}
-			else {
-				float minDistance = INFINITY;
-				int nearPoint = -1;
-				for (int i = 0; i < p1.size(); i++) {
-					float distance = cv::norm(p1[i] - events[currentEvent].coord);
-					if (distance < minDistance) {
-						nearPoint = i;
-						minDistance = distance;
+		for (int currentEvent = 0; currentEvent < events.size(); currentEvent++) {
+			if (currentFrame == events[currentEvent].frame) {
+				if (events[currentEvent].isVisible) {
+					p0.push_back(events[currentEvent].coord);
+					printf("Tomato Added in (%d, %d)\n", (int)events[currentEvent].coord.x, (int)events[currentEvent].coord.y);
+				}
+				else {
+					float minDistance = INFINITY;
+					int nearPoint = -1;
+					for (int i = 0; i < p1.size(); i++) {
+						float distance = cv::norm(p1[i] - events[currentEvent].coord);
+						if (distance < minDistance) {
+							nearPoint = i;
+							minDistance = distance;
+						}
+					}
+					if (nearPoint >= 0) {
+						p0.erase(p0.begin() + nearPoint);
+						printf("Tomato deleted from (%d, %d)\n", (int)events[currentEvent].coord.x, (int)events[currentEvent].coord.y);
 					}
 				}
-				if (nearPoint >= 0) {
-					p0.erase(p0.begin() + nearPoint);
-				}
+				//currentEvent++;
 			}
-			currentEvent++;
 		}
 		p1.resize(p0.size());
 
@@ -185,12 +189,16 @@ void ComputeOpticalFlow(VideoCapture &video, std::vector<TomatoeEvent> events, i
 		TermCriteria criteria = cv::TermCriteria((cv::TermCriteria::COUNT) + (cv::TermCriteria::EPS), 10, 0.03);
 
 		if (p0.size() > 0) {
+			string label;
+
 			// calculate optical flow
 			calcOpticalFlowPyrLK(old_gray, frame_gray, p0, p1, status, err, cv::Size(w_size, w_size), 2, criteria);
 
 			// Print circles
 			for (int i = 0; i < p1.size(); i++) {
+				label = "Tomato " + to_string(i + 1) + " pos(" + to_string((int)p1[i].x) + ", " + to_string((int)p1[i].y) + ")";
 				circle(frame, p1[i], circleSize, cv::Scalar(255, 0, 0, 255), 3);
+				putText(frame, label, p1[i], FONT_HERSHEY_PLAIN, 1.0, CV_RGB(0, 255, 0), 1.0);
 			}
 		}
 
