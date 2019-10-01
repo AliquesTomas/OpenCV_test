@@ -98,6 +98,7 @@ int main(int argc, char** argv)
 	int frameNum = 0;
 	// Camera test
 	while (true) {
+		string label;
 		Mat frame, frame_gray;
 
 		video_in.read(frame);
@@ -117,8 +118,12 @@ int main(int argc, char** argv)
 			if ((p0[i].x > 0) && (p0[i].y > 0))	// Ignore points not initialized
 			{
 				calcOpticalFlowPyrLK(old_gray, frame_gray, p0, p1, status, err, cv::Size(w_size, w_size), 2, criteria);
-				if (status[i]) 
+				if (status[i])
+				{
+					label = "Tomato " + to_string(i+1) + " pos(" + to_string((int)p1[i].x) + ", " + to_string((int)p1[i].y) + ")";
 					circle(frame, p1[i], tomatoSize, cv::Scalar(255, 0, 0, 255), 5);
+					putText(frame, label, p1[i], FONT_HERSHEY_PLAIN, 1.0, CV_RGB(0, 255, 0), 1.9);
+				}
 				p0[i] = p1[i];
 			}
 		}
