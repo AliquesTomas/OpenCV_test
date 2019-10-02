@@ -28,16 +28,30 @@ struct TomatoeEvent
 	bool isVisible;
 };
 
-std::vector<TomatoeEvent> tomatoeEvents;
-
 VideoCapture video_in;
-
-int numTomatos = 10;
-std::vector<cv::Point2f> p0(numTomatos), p1(numTomatos);
+std::vector<TomatoeEvent> tomatoeEvents;
+std::vector<cv::Point2f> p0, p1;
 std::vector<Point2f> tomatoes;
 int w_size = 15;
 int currentFrame = -1;
 
+int x_max_lbl = 1700;	// Max X position for tomato labels
+Point2f footer_lbl_p = Point2f(20, 1050);
+string footer_lbl;
+
+static void help()
+{
+	printf("\nThis is a demo of Lukas-Kanade optical flow:\n");
+	printf("Using OpenCV version %s", CV_VERSION);
+	printf("\nHot keys: \n");
+	printf("\tESC - quit the program\n");
+	printf("\tf - input a filename(path) and load stored feature points\n");
+	printf("\tp - select/unselect feature points and store it in a file:\n");
+	printf("\t\tTo add a feature point double (left) click it\n");
+	printf("\t\tTo remove an existing feature point double (right) click it\n");
+	printf("\t\td - switch the \"draw circles\" mode on/off\n");
+	printf("\n\n");
+}
 
 // Mouse event
 static void onMouse(int event, int x, int y, int, void*)
@@ -85,13 +99,14 @@ vector<Mat> images; // output video frames
 int SaveVideo()
 {
 	if (images.empty())
-		return -1;
+		return -1;	
 
 	Size S = Size((int)video_in.get(CAP_PROP_FRAME_WIDTH),
 		(int)video_in.get(CAP_PROP_FRAME_HEIGHT));
 	int ex = static_cast<int>(video_in.get(CAP_PROP_FOURCC));    // Get Codec Type
 
 	VideoWriter outputVideo;  // Open the output
+	printf("FPS: %f", video_in.get(CAP_PROP_FPS));
 	outputVideo.open("test_output.mp4", ex, video_in.get(CAP_PROP_FPS), S, true);
 
 	if (!outputVideo.isOpened()) {
@@ -99,50 +114,128 @@ int SaveVideo()
 		return -1;
 	}
 
-	for (int i = 0; i < images.size(); i++)
+	printf("Saving video file...\n");
+	int n_frames = images.size();
+	if (images.size() > 900) {
+		n_frames = 900;
+	}
+		
+	for (int i = 0; i < n_frames; i++)
 		outputVideo << images[i];
 
 	outputVideo.release();
 	return 0;
 }
 
-void PickTomatoes(VideoCapture &video_in) {
-	Mat frame;
+void PickTomatoes(VideoCapture &video_in, std::vector<TomatoeEvent> &events, int circleSize) {
+	Mat frame, frame_gray, old_frame, old_gray;	
+	bool drawCircles = false;
 	currentFrame = 0;
+
+	video_in.set(CAP_PROP_POS_FRAMES, 0);
+	video_in.read(old_frame);
+	cvtColor(old_frame, old_gray, cv::COLOR_BGR2GRAY);
+	//currentFrame++;
 
 	while (true) {
 		video_in.read(frame);
 		if (frame.empty()) {
 			break;
 		}
+	
+		// Compute the optical flow and shows the circles
+		if (drawCircles && events.size() > 0)
+		{
+			for (int currentEvent = 0; currentEvent < events.size(); currentEvent++) {
+				if (currentFrame == events[currentEvent].frame) {
+					if (events[currentEvent].isVisible) {
+						p0.push_back(events[currentEvent].coord);
+						printf("Tomato Added in (%d, %d)\n", (int)events[currentEvent].coord.x, (int)events[currentEvent].coord.y);
+					}
+					else {
+						float minDistance = INFINITY;
+						int nearPoint = -1;
+						for (int i = 0; i < p1.size(); i++) {
+							float distance = cv::norm(p1[i] - events[currentEvent].coord);
+							if (distance < minDistance) {
+								nearPoint = i;
+								minDistance = distance;
+							}
+						}
+						if (nearPoint >= 0) {
+							p0.erase(p0.begin() + nearPoint);
+							printf("Tomato deleted from (%d, %d)\n", (int)events[currentEvent].coord.x, (int)events[currentEvent].coord.y);
+						}
+					}
+				}
+			}
+			p1.resize(p0.size());
+			cvtColor(frame, frame_gray, cv::COLOR_BGR2GRAY);
 
-		imshow("Video", frame);        // Show new frame
-		printf("Frame : %d\n", currentFrame);
+			vector<uchar> status;
+			vector<float> err;
+			TermCriteria criteria = cv::TermCriteria((cv::TermCriteria::COUNT) + (cv::TermCriteria::EPS), 10, 0.03);
 
-		if (currentFrame == 0) {
-			waitKey();
+			if (p0.size() > 0) {
+				string label;
+				Point2f lbl_p;
+
+				// calculate optical flow
+				calcOpticalFlowPyrLK(old_gray, frame_gray, p0, p1, status, err, cv::Size(w_size, w_size), 2, criteria);
+
+				// Print circles and labels
+				for (int i = 0; i < p1.size(); i++) {
+					if (status[i]) {
+						label = "Tomato " + to_string(i + 1) + " pos(" + to_string((int)p1[i].x) + ", " + to_string((int)p1[i].y) + ")";
+						circle(frame, p1[i], circleSize, cv::Scalar(255, 0, 0, 255), 3);
+						lbl_p = p1[i];
+						if ((int)lbl_p.x > 1700) lbl_p.x = 1700;
+						cv::putText(frame, label, lbl_p, FONT_HERSHEY_PLAIN, 1.0, CV_RGB(0, 255, 0), 1.0);
+					}
+				}
+			}
+
+			footer_lbl = "Frame: " + to_string(currentFrame++) + " (" + to_string(p1.size()) + " tomatoes)";
+			cv::putText(frame, footer_lbl, footer_lbl_p, FONT_HERSHEY_PLAIN, 1.0, CV_RGB(0, 255, 0), 1.8);
+			cv::imshow("Video", frame);	// Show modified frame
+			images.push_back(frame);	// Store new frame in output video
+
+			if (waitKey(10) == 27) {
+				printf("Processing interruped\n");
+				break;
+			}
+
+			old_gray = frame_gray.clone();
+
+			for (int i = 0; i < p0.size(); i++) {
+				p0[i] = p1[i];
+			}
+			printf("%s\n", footer_lbl.c_str());
+		}
+		else
+		{
+			cv::imshow("Video", frame);        // Show new frame	
+			printf("Frame: %d\n", currentFrame);
+			images.push_back(frame);
+			currentFrame++;
 		}
 
-		currentFrame++;
+	/*	if (currentFrame == 0) {
+			waitKey();
+		}*/		
 		int key = waitKey(0);
 		if (key == 27) {
 			break;
-		}/*else if(key = 32){
-		 printf("Video paused\n");
-		 while (true) {
-		 if (waitKey(100) == 32) {
-		 break;
-		 }
-		 }
-		 printf("Video play\n");
-		 }*/
+		}
+		else if (key == 100) { //d
+			drawCircles = !drawCircles;
+		}			 
 	}
 }
 
 void ComputeOpticalFlow(VideoCapture &video, std::vector<TomatoeEvent> events, int circleSize) {
 	Mat frame, frame_gray, old_frame, old_gray;
 	std::vector<Point2f> p0, p1;
-	//int currentEvent = 0;
 	currentFrame = 0;
 
 	video_in.set(CAP_PROP_POS_FRAMES, 0);
@@ -151,6 +244,11 @@ void ComputeOpticalFlow(VideoCapture &video, std::vector<TomatoeEvent> events, i
 	currentFrame++;
 
 	while (true) {
+		//// KK
+		//if (currentFrame == 774) {
+		//	printf("yei");
+		//}
+
 		for (int currentEvent = 0; currentEvent < events.size(); currentEvent++) {
 			if (currentFrame == events[currentEvent].frame) {
 				if (events[currentEvent].isVisible) {
@@ -167,12 +265,11 @@ void ComputeOpticalFlow(VideoCapture &video, std::vector<TomatoeEvent> events, i
 							minDistance = distance;
 						}
 					}
-					if (nearPoint >= 0) {
+					if (nearPoint >= 0 && nearPoint < p0.size()) {
 						p0.erase(p0.begin() + nearPoint);
 						printf("Tomato deleted from (%d, %d)\n", (int)events[currentEvent].coord.x, (int)events[currentEvent].coord.y);
 					}
 				}
-				//currentEvent++;
 			}
 		}
 		p1.resize(p0.size());
@@ -190,20 +287,27 @@ void ComputeOpticalFlow(VideoCapture &video, std::vector<TomatoeEvent> events, i
 
 		if (p0.size() > 0) {
 			string label;
+			Point2f lbl_p;
 
 			// calculate optical flow
 			calcOpticalFlowPyrLK(old_gray, frame_gray, p0, p1, status, err, cv::Size(w_size, w_size), 2, criteria);
 
-			// Print circles
+			// Print circles and labels
 			for (int i = 0; i < p1.size(); i++) {
-				label = "Tomato " + to_string(i + 1) + " pos(" + to_string((int)p1[i].x) + ", " + to_string((int)p1[i].y) + ")";
-				circle(frame, p1[i], circleSize, cv::Scalar(255, 0, 0, 255), 3);
-				putText(frame, label, p1[i], FONT_HERSHEY_PLAIN, 1.0, CV_RGB(0, 255, 0), 1.0);
+				if (status[i]) {
+					label = "Tomato " + to_string(i + 1) + " pos(" + to_string((int)p1[i].x) + ", " + to_string((int)p1[i].y) + ")";
+					circle(frame, p1[i], circleSize, cv::Scalar(255, 0, 0, 255), 3);
+					lbl_p = p1[i];
+					if ((int)lbl_p.x > 1700) lbl_p.x = 1700;
+					cv::putText(frame, label, lbl_p, FONT_HERSHEY_PLAIN, 1.0, CV_RGB(0, 255, 0), 1.0);
+				}				
 			}
 		}
 
-		imshow("Video", frame);        // Show new frame
-		images.push_back(frame);    // Store new frame in output video
+		footer_lbl = "Frame " + to_string(currentFrame++) + " (" + to_string(p1.size()) + " tomatoes)";
+		cv::putText(frame, footer_lbl, footer_lbl_p, FONT_HERSHEY_PLAIN, 1.0, CV_RGB(0, 255, 0), 1.8);
+		cv::imshow("Video", frame);	// Show new frame
+		images.push_back(frame);	// Store new frame in output video
 
 		if (waitKey(10) == 27) {
 			printf("Processing interruped\n");
@@ -215,7 +319,7 @@ void ComputeOpticalFlow(VideoCapture &video, std::vector<TomatoeEvent> events, i
 		for (int i = 0; i < p0.size(); i++) {
 			p0[i] = p1[i];
 		}
-		printf("Frame %d\t tomatoes : %d\n", currentFrame++, p1.size());
+		printf("%s\n", footer_lbl.c_str());
 	}
 }
 
@@ -245,12 +349,12 @@ void readTomatoEvents(std::vector<TomatoeEvent> &events, const char *filename) {
 
 int main(int argc, char** argv)
 {
-	printf("Starting...\n");
+	help();
 
 	// TODO : Also ask for enter path
 	char path[] = "Data/";
 
-	char fileName[] = "IMG_3018.MOV";
+	char fileName[] = "test.mp4";
 	//char fileName[100];
 	//printf("Video filename in %s : ",path);
 	//scanf_s("%s", fileName, sizeof(fileName));
@@ -272,10 +376,9 @@ int main(int argc, char** argv)
 
 	// Pick manually the tomatoes in the video
 	// TODO : Ask for pick or read file
-	printf("'P' for pick manually of 'F' for read from file (Press with window focused)\n");
 	int key = waitKey();
 	if (key == 'p') {
-		PickTomatoes(video_in);
+		PickTomatoes(video_in, tomatoeEvents, 40);
 
 		// Serialize and save
 		char selectionFileName[] = "manualSelection.txt";
@@ -289,7 +392,7 @@ int main(int argc, char** argv)
 	else if (key == 'f') {
 		// TODO : Check
 		char selectionFileName[100];
-		printf("Enter filename for read selection : ");
+		printf("Enter filename for read selection: ");
 		scanf_s("%s", selectionFileName, sizeof(selectionFileName));
 
 		sprintf_s(fullPath, sizeof(fullPath), "%s%s", path, selectionFileName);
@@ -299,14 +402,21 @@ int main(int argc, char** argv)
 		exit(0);
 	}
 
-	//printf("Press 'Space' for compute or any key for exit");
-	//if (waitKey() != 32) {
-	//    exit(0);
-	//}
+	printf("Press 'c' for compute or any key for continue.\n");
+	if (waitKey() == 'c') {
+		try	{
+			ComputeOpticalFlow(video_in, tomatoeEvents, 40);
+		}
+		catch (std::exception& e) {
+			printf("Standard exception: %s\n", e.what());
+		}
+	}
 
-	ComputeOpticalFlow(video_in, tomatoeEvents, 40);
-
-	// TODO : Ask confirmation fot save or not
+	// Ask confirmation fot save or not
+	printf("Press 's' for save the new video file or any key for exit.\n");
+	if (waitKey() != 's') {
+		exit(0);
+	}
 
 	if (SaveVideo() >= 0) {
 		printf("Output video saved successfully.\n");
@@ -314,4 +424,5 @@ int main(int argc, char** argv)
 	else {
 		printf("Error saving the new video stream to file.\n");
 	}
+	waitKey();
 }
