@@ -28,7 +28,7 @@ struct TomatoeEvent
 	bool isVisible;
 };
 
-VideoCapture video_in;
+VideoCapture video_in("Data/IMG_3018.MOV");;
 std::vector<TomatoeEvent> tomatoeEvents;
 std::vector<cv::Point2f> p0, p1;
 std::vector<Point2f> tomatoes;
@@ -46,6 +46,7 @@ static void help()
 	printf("\nHot keys: \n");
 	printf("\tESC - quit the program\n");
 	printf("\tf - input a filename(path) and load stored feature points\n");
+	printf("\tl - load all pics in Data/IMG as frames\n");
 	printf("\tp - select/unselect feature points and store it in a file:\n");
 	printf("\t\tTo add a feature point double (left) click it\n");
 	printf("\t\tTo remove an existing feature point double (right) click it\n");
@@ -107,7 +108,7 @@ int SaveVideo()
 
 	VideoWriter outputVideo;  // Open the output
 	printf("FPS: %f", video_in.get(CAP_PROP_FPS));
-	outputVideo.open("test_output.mp4", ex, video_in.get(CAP_PROP_FPS), S, true);
+	outputVideo.open("test_output.MOV", ex, video_in.get(CAP_PROP_FPS), S, true);
 
 	if (!outputVideo.isOpened()) {
 		printf("Could not open the output video for write.\n");
@@ -116,15 +117,33 @@ int SaveVideo()
 
 	printf("Saving video file...\n");
 	int n_frames = images.size();
-	if (images.size() > 900) {
+	/*if (n_frames > 900) {
 		n_frames = 900;
-	}
+	}*/
 		
 	for (int i = 0; i < n_frames; i++)
 		outputVideo << images[i];
 
 	outputVideo.release();
 	return 0;
+}
+
+int LoadPics()
+{
+	int n_frames = 2;
+	printf("Loading images from Data dir...\n");
+	while (1) {
+		string fn = "Data/IMG/frame_" + to_string(n_frames) + ".jpg";
+		Mat frame = imread(fn.c_str());
+		if (!frame.data)                              // Check for invalid input
+		{
+			printf("Could not open or find the image %s\n", fn.c_str());
+			return -1;
+		}
+		printf("Image %s loaded\n", fn.c_str());
+		images.push_back(frame);
+		n_frames++;
+	}	
 }
 
 void PickTomatoes(VideoCapture &video_in, std::vector<TomatoeEvent> &events, int circleSize) {
@@ -308,6 +327,8 @@ void ComputeOpticalFlow(VideoCapture &video, std::vector<TomatoeEvent> events, i
 		cv::putText(frame, footer_lbl, footer_lbl_p, FONT_HERSHEY_PLAIN, 1.0, CV_RGB(0, 255, 0), 1.8);
 		cv::imshow("Video", frame);	// Show new frame
 		images.push_back(frame);	// Store new frame in output video
+		string fn = "Data/IMG/frame_" + to_string(currentFrame) + ".jpg";
+		imwrite(fn, frame);
 
 		if (waitKey(10) == 27) {
 			printf("Processing interruped\n");
@@ -353,8 +374,10 @@ int main(int argc, char** argv)
 
 	// TODO : Also ask for enter path
 	char path[] = "Data/";
+	char fileName[] = "IMG_3018.MOV";
+	//char fileName[] = "test.mp4";
+	//char fileName[] = "IMG_3021.MOV";
 
-	char fileName[] = "test.mp4";
 	//char fileName[100];
 	//printf("Video filename in %s : ",path);
 	//scanf_s("%s", fileName, sizeof(fileName));
@@ -363,7 +386,7 @@ int main(int argc, char** argv)
 	sprintf_s(fullPath, sizeof(fullPath), "%s%s", path, fileName);
 
 	// Load video
-	video_in.open(fullPath);
+	//video_in.open(fullPath);
 
 	// Check if video opened successfully
 	if (!video_in.isOpened()) {
@@ -388,6 +411,14 @@ int main(int argc, char** argv)
 
 		sprintf_s(fullPath, sizeof(fullPath), "%s%s", path, selectionFileName);
 		saveTomatoEvents(tomatoeEvents, fullPath);
+	}
+	else if (key == 'l') {
+		if (LoadPics() >= 0) {
+			printf("Images loaded successfully.\n");
+		}
+		else {
+			printf("Error loading the images.\n");
+		}
 	}
 	else if (key == 'f') {
 		// TODO : Check
